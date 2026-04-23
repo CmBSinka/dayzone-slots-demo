@@ -1,3 +1,4 @@
+/* Global page-level defaults applied before the game-specific stylesheet. */
 :root {
   color-scheme: dark;
   font-synthesis: none;

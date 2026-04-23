@@ -12,8 +12,29 @@ import { Application, extend, useTick } from "@pixi/react";
 import { Container, Graphics } from "pixi.js";
 import "./styles/main.css";
 
+/*
+ * Общая архитектура файла:
+ * - В верхней части лежат все исходные данные игры: список символов, таблицы выплат,
+ *   веса выпадения, лимиты по RTP и тексты интерфейса.
+ * - Ниже идут чистые функции без React-состояния: они генерируют поле, считают выигрыш,
+ *   моделируют каскады и отсеивают слишком сильные или слишком частые исходы.
+ * - Дальше находятся презентационные компоненты: панели, сетка, модалки, Pixi-оверлеи.
+ * - В самом низу расположен `App`, который оркестрирует весь жизненный цикл спина.
+ *
+ * Полный цикл одного спина выглядит так:
+ * 1. Интерфейс переводится в состояние прокрутки, а колонки получают CSS-анимацию "reel spin".
+ * 2. Генерируется кандидатное поле, которое проходит проверки на допустимую волатильность.
+ * 3. Поле показывается игроку и проходит короткую фазу "посадки" после вращения.
+ * 4. Игра проверяет scatter, обычные выигрыши и бонусную механику sticky-scatter в free spins.
+ * 5. Выигрыш удерживается на экране достаточно долго, чтобы игрок успел его считать глазами.
+ * 6. Затем запускаются анимации уничтожения символов и физика каскадного падения.
+ * 7. Поле дозаполняется сверху, после чего цикл повторяется, пока не останется новых выигрышей.
+ */
+
+// Регистрируем Pixi-объекты один раз, чтобы их можно было использовать в React-дереве.
 extend({ Container, Graphics });
 
+// Базовый список символов, используемый генератором поля и таблицей выплат.
 const SYMBOLS = [
   "Conserva",
   "Energy",
@@ -27,7 +48,8 @@ const SYMBOLS = [
   "scatter",
 ];
 
-const BASE_SYMBOL_WEIGHTS = { // РѕР±С‹С‡РЅС‹Рµ С€Р°РЅСЃС‹
+// Веса символов для обычной игры: чем больше число, тем чаще символ может появиться.
+const BASE_SYMBOL_WEIGHTS = {
   Conserva: 17,
   Energy: 15,
   Vodka: 13,
@@ -40,7 +62,8 @@ const BASE_SYMBOL_WEIGHTS = { // РѕР±С‹С‡РЅС‹Рµ С€Р°РЅС
   scatter: 2,
 };
 
-const FREE_SPINS_SYMBOL_WEIGHTS = { // С€Р°РЅСЃС‹ РєСЂСѓС‚РєРё С„СЃ
+// В бесплатных спинах используется отдельная таблица весов, чтобы бонус ощущался иначе, чем база.
+const FREE_SPINS_SYMBOL_WEIGHTS = {
   Conserva: 2,
   Energy: 17,
   Vodka: 14,
@@ -66,6 +89,7 @@ const SYMBOL_IMAGE_MAP = {
   Energy: "/12.png",
 };
 
+// Таблица выплат для механики pay-anywhere по количеству одинаковых символов на всём поле.
 const PAYOUTS = {
   Conserva: { 6: 75, 8: 200, 10: 500 },
   Energy: { 6: 120, 8: 260, 10: 1000 },
@@ -113,6 +137,19 @@ const SCATTER_PAYOUTS = {
   6: 20000,
 };
 
+/*
+ * Здесь сосредоточены настраиваемые константы математики и темпа игры.
+ *
+ * Главные группы параметров:
+ * - экономика бонуса: FREE_SPINS_START, FREE_SPINS_RETRIGGER, BUY_FREE_SPINS_MULTIPLIER
+ * - контроль волатильности: SOFT_MAX_WIN_MULTIPLIER, MAX_WIN_MULTIPLIER, лимиты по каскадам
+ * - управление RTP: RTP_TARGET и мягкие/жёсткие диапазоны отклонения
+ * - глубина подбора поля: MAX_SPIN_ATTEMPTS и MAX_REFILL_ATTEMPTS
+ *
+ * Важно по таймингам:
+ * асинхронные `wait(...)` ниже специально подогнаны под длительности анимаций из `main.css`.
+ * Если меняются времена вращения, удаления, падения или бонусной сцены, менять нужно обе стороны.
+ */
 const INITIAL_BALANCE = 100000;
 const BASE_BET_AMOUNT = 200;
 const FREE_SPINS_START = 7;
@@ -183,6 +220,7 @@ const UI_TEXT = {
   bonusContinue: "Нажмите, чтобы продолжить",
 };
 
+// Выбираем, какая таблица весов должна использоваться в текущем игровом режиме.
 function getSpinWeights(isFreeSpins = false, anteBetActive = false) {
   if (isFreeSpins) {
     return FREE_SPINS_SYMBOL_WEIGHTS;
@@ -198,6 +236,7 @@ function getSpinWeights(isFreeSpins = false, anteBetActive = false) {
   };
 }
 
+// Символ scatter в одной колонке допускается только один, поэтому иногда нужна таблица весов без scatter.
 function getNonScatterWeights(isFreeSpins = false) {
   const sourceWeights = isFreeSpins ? FREE_SPINS_SYMBOL_WEIGHTS : BASE_SYMBOL_WEIGHTS;
 
@@ -214,6 +253,7 @@ function removeScatterWeight(weights) {
   };
 }
 
+// Генерируем одну колонку так, чтобы внутри неё не появлялось больше одного scatter.
 function generateColumn(length, weights, existingSymbols = []) {
   const column = [...existingSymbols];
   let hasScatter = column.includes("scatter");
@@ -234,6 +274,7 @@ function generateColumn(length, weights, existingSymbols = []) {
   return column;
 }
 
+// Общий helper для случайного выбора символа по весам в базе и при дозаполнении каскадов.
 function randomSymbolForWeights(weights) {
   const symbols = Object.keys(weights);
   const totalWeight = symbols.reduce((sum, symbol) => sum + (weights[symbol] || 0), 0);
@@ -255,6 +296,7 @@ function generateGrid(isFreeSpins = false, anteBetActive = false) {
   return Array.from({ length: 5 }, () => generateColumn(5, weights));
 }
 
+// Служебная функция для тестов и отладки: принудительно создаёт гарантированный выигрышный расклад.
 function forceWinningSymbolGrid(grid, symbol, count = 6) {
   const forcedGrid = grid.map((column) => [...column]);
   const positions = [];
@@ -288,6 +330,16 @@ function getBoughtBonusScatterCount() {
 }
 
 function generateBoughtBonusGrid() {
+  /*
+   * Генерация купленного бонуса строже, чем генерация обычного спина:
+   * - сначала создаётся поле без естественных scatter,
+   * - затем вручную добавляются 3/4/5 scatter по заданным шансам,
+   * - после этого отбрасываются поля, где одновременно возникал бы обычный выигрыш.
+   *
+   * Это нужно для "чистой" бонусной сцены на входе:
+   * игрок должен увидеть понятный триггер бонуса, а не смешанный исход
+   * вида "scatter + обычный выигрыш + каскад" в один и тот же кадр.
+   */
   const weights = getNonScatterWeights(false);
   let fallbackGrid = Array.from({ length: 5 }, () => generateColumn(5, weights));
 
@@ -355,6 +407,7 @@ function scalePayout(basePayout, betAmount) {
   return (basePayout * betAmount) / BASE_BET_AMOUNT;
 }
 
+// Целевое RTP вынесено в отдельную функцию, чтобы все фильтры сравнивали исходы одинаково.
 function getTargetRtp() {
   return RTP_TARGET;
 }
@@ -395,6 +448,7 @@ function findSymbolPositions(grid, symbol) {
   return positions;
 }
 
+// Sticky-scatter в режиме бесплатных спинов должен переживать обычное удаление выигрышных символов.
 function normalizeFreeSpinScatterGrid(grid, stickyScatters = []) {
   const normalizedGrid = cloneGrid(grid);
   const scatterPositions = findSymbolPositions(normalizedGrid, "scatter");
@@ -509,6 +563,7 @@ function collapseGrid(grid, isFreeSpins = false, anteBetActive = false, stickySc
   });
 }
 
+// Готовим данные для анимации падения: откуда каждая клетка визуально "прилетела" после каскада.
 function getCollapseFallMap(clearedGrid, collapsedGrid, stickyScatters = []) {
   const fallMap = {};
 
@@ -554,6 +609,7 @@ function getCollapseFallMap(clearedGrid, collapsedGrid, stickyScatters = []) {
   return fallMap;
 }
 
+// Считаем все выигрыши на всём поле, включая отдельный учёт scatter и набор выигрышных клеток.
 function evaluateGridWin(grid, betAmount, options = {}) {
   const ignoreScatterPayouts = options.ignoreScatterPayouts === true;
   let totalWin = 0;
@@ -616,6 +672,15 @@ function simulateSpinSequence(
   anteBetActive = false,
   stickyScatters = [],
 ) {
+  /*
+   * Сухая симуляция для эвристик генератора.
+   *
+   * Функция прогоняет весь каскадный сценарий без изменения React-состояния.
+   * Это позволяет ещё до показа поля игроку понять:
+   * - сколько в сумме выплатит такой стартовый расклад,
+   * - сколько каскадов он породит,
+   * - не окажется ли исход слишком жирным для текущей сессии.
+   */
   let workingGrid = grid.map((column) => [...column]);
   let totalWin = 0;
   let cascades = 0;
@@ -648,6 +713,18 @@ function generateResolvedCollapseGrid(
   anteBetActive = false,
   stickyScatters = [],
 ) {
+  /*
+   * Этап дозаполнения после удаления символов.
+   *
+   * Здесь подбирается не первое попавшееся поле, а несколько кандидатных вариантов,
+   * чтобы ритм каскадов оставался правдоподобным:
+   * - ранние каскады ещё могут продолжаться,
+   * - длинные цепочки начинают жёстче подавляться,
+   * - поздние и слишком жирные продолжения чаще отбрасываются.
+   *
+   * Это не только математическая функция, но и функция "ощущения игры":
+   * именно она сильно влияет на то, насколько слот кажется щедрым, нервным или вязким.
+   */
   let fallbackGrid = collapseGrid(clearedGrid, isFreeSpins, anteBetActive, stickyScatters);
 
   for (let attempt = 0; attempt < MAX_REFILL_ATTEMPTS; attempt += 1) {
@@ -705,6 +782,7 @@ function generateResolvedCollapseGrid(
   return fallbackGrid;
 }
 
+// Проверяем, вписывается ли исход спина в заданные рамки RTP, волатильности и длины каскадов.
 function shouldAcceptSpinOutcome(outcome, betAmount, stats, targetRtp) {
   if (outcome.totalWin === 0) return true;
   if (outcome.cascades > HARD_MAX_CASCADES) return false;
@@ -808,6 +886,7 @@ function generateApprovedGrid(betAmount, stats, isFreeSpins = false, anteBetActi
   return fallbackGrid;
 }
 
+// Маленькая карточка-статистика для боковых панелей.
 function PanelStat({ label, value, accent = false }) {
   return (
     <div className="panel-card">
@@ -826,6 +905,11 @@ function getRemovalEffectTypeForSymbol(symbol) {
 }
 
 function buildRemovalEffects(grid, matched) {
+  /*
+   * Превращаем логические выигрышные клетки в описание визуальных эффектов.
+   * Базовое удаление обслуживается CSS-классами, а часть символов дополнительно
+   * порождает Pixi-оверлей с более дорогой и заметной сценой уничтожения.
+   */
   const effects = [];
 
   grid.forEach((column, columnIndex) => {
@@ -848,6 +932,13 @@ function buildRemovalEffects(grid, matched) {
 }
 
 function getSingleRemovalQuoteSources(grid, matched) {
+  /*
+   * Подбираем одиночную тематическую реплику под удаление.
+   *
+   * Реплика проигрывается только если в текущем remove-событии участвует ровно один тип символа.
+   * Это ограничение нужно для читаемости сцены: при смешанном удалении аудио начинало бы спорить
+   * с визуалом и создавать ощущение случайной, а не осмысленной реакции.
+   */
   const matchedSymbols = new Set();
 
   grid.forEach((column, columnIndex) => {
@@ -865,12 +956,23 @@ function getSingleRemovalQuoteSources(grid, matched) {
   return null;
 }
 
+// Ниже идут Pixi-компоненты, которые рисуют временные визуальные эффекты поверх обычной HTML-сетки.
 function VodkaSpillEffect({ effect, turbo }) {
   const graphicsRef = useRef(null);
   const progressRef = useRef(0);
+  // Длительность подогнана под CSS-анимацию, чтобы наклон и след жидкости читались как одно событие.
   const duration = turbo ? 320 : 760;
 
   useTick((ticker) => {
+    /*
+     * Эффект строится вручную из простых примитивов:
+     * - кривой струи,
+     * - овальной лужицы,
+     * - нескольких капель с разными фазами задержки.
+     *
+     * Важна не физическая точность, а мгновенно считываемая ассоциация:
+     * символ "пролился", распался и освободил клетку для каскада.
+     */
     const graphics = graphicsRef.current;
     if (!graphics) return;
 
@@ -939,9 +1041,17 @@ function VodkaSpillEffect({ effect, turbo }) {
 function EnergyShockEffect({ effect, turbo }) {
   const graphicsRef = useRef(null);
   const progressRef = useRef(0);
+  // Двухтактная сцена: сначала короткая дрожь-зарядка, потом явный электрический разряд.
   const duration = turbo ? 280 : 620;
 
   useTick((ticker) => {
+    /*
+     * Внутренний ритм эффекта разделён на две части:
+     * - первая часть даёт телеграф: символ дрожит и накапливает напряжение,
+     * - вторая часть выпускает наружу кольцо и электрические дуги.
+     *
+     * Такое разделение делает удаление понятным даже на высокой скорости turbo.
+     */
     const graphics = graphicsRef.current;
     if (!graphics) return;
 
@@ -1014,9 +1124,19 @@ function GraviVortexEffect({ effect, turbo }) {
   const graphicsRef = useRef(null);
   const progressRef = useRef(0);
   const isHeavy = effect.type === "gravi-heavy";
+  // Тяжёлый и лёгкий гравитационные эффекты строятся на одной идее, но отличаются плотностью и временем.
   const duration = turbo ? (isHeavy ? 320 : 220) : isHeavy ? 860 : 480;
 
   useTick((ticker) => {
+    /*
+     * Здесь рисуется не "взрыв", а именно втягивание:
+     * - центральное тёмное ядро,
+     * - внешнее кольцо,
+     * - частицы, вращающиеся по спирали,
+     * - streak-линии, которые усиливают ощущение центростремительного движения.
+     *
+     * Heavy-вариант дольше держит напряжение и больше подходит для мощных символов.
+     */
     const graphics = graphicsRef.current;
     if (!graphics) return;
 
@@ -1185,6 +1305,7 @@ const SymbolCell = memo(function SymbolCell({
   );
 });
 
+// Панели и оверлеи разнесены по отдельным компонентам, чтобы основной App не разрастался ещё сильнее.
 function LeftPanel({
   balance,
   betPerLine,
@@ -1394,6 +1515,19 @@ function SlotGrid({
   turbo,
   statusText,
 }) {
+  /*
+   * SlotGrid — это визуальный мост между логическими ключами клеток и реальными координатами на экране.
+   *
+   * Компонент измеряет DOM-геометрию каждой клетки, чтобы точно совместить с ней:
+   * - Pixi-эффекты удаления,
+   * - полёты Conserva к sticky-scatter,
+   * - всплывающий текст награды над целями бонусной коллекции.
+   */
+  /*
+   * Ключевая идея компонента:
+   * игровая логика знает только координаты вида `column-row`, а эффекты должны знать пиксели.
+   * Поэтому SlotGrid постоянно выступает адаптером между "логикой слота" и "сценой на экране".
+   */
   const frameRef = useRef(null);
   const cellRefs = useRef(new Map());
   const [measuredEffects, setMeasuredEffects] = useState([]);
@@ -1734,7 +1868,19 @@ function BonusModal({ data, onClose }) {
   );
 }
 
+// Главный компонент приложения: хранит состояние игры, спин-цикл, аудио, модалки и бонусные ветки.
 export default function App() {
+  /*
+   * Модель состояния:
+   * - экономика: баланс, ставка, последний выигрыш, накопленная статистика RTP за сессию
+   * - режимы: turbo, free spins, ante bet, autospin, fullscreen, звук
+   * - состояние поля: сетка, карта падения, sticky-scatter, наборы highlight/removal/collect
+   * - оверлеи: модалки, сцена сбора бонуса, описания Pixi-эффектов
+   *
+   * Безопасность асинхронных веток:
+   * spinCycleRef работает как маркер актуального цикла. Каждый новый спин или reset
+   * увеличивает его, и все старые awaited-ветки обязаны завершаться раньше, если цикл уже сменился.
+   */
   const preloadedSymbolImagesRef = useRef([]);
   const [grid, setGrid] = useState(() => generateGrid());
   const [viewportScale, setViewportScale] = useState(1);
@@ -1795,7 +1941,7 @@ export default function App() {
 
     audioRef.current.volume = musicVolume;
     audioRef.current.play().catch(() => {
-      // Browsers may still block unmuted autoplay until user interaction.
+      // Браузер всё ещё может блокировать автозапуск со звуком до первого действия пользователя.
     });
   }
 
@@ -1805,7 +1951,7 @@ export default function App() {
       return;
     }
 
-    // If UI says sound is on but autoplay was blocked, first click should start music.
+    // Если в интерфейсе звук уже включён, но автозапуск был заблокирован, первый клик должен запустить музыку.
     if (soundOn && audioRef.current.paused) {
       syncAudioPlayback(true);
       return;
@@ -1815,6 +1961,7 @@ export default function App() {
   }
 
   function wait(ms) {
+    // Каждый таймер регистрируется, чтобы reset или unmount могли безопасно оборвать весь сценарий спина.
     return new Promise((resolve) => {
       const timeoutId = window.setTimeout(() => {
         timersRef.current.delete(timeoutId);
@@ -1826,6 +1973,7 @@ export default function App() {
   }
 
   function clearAllTimers() {
+    // Не даём старым асинхронным веткам менять состояние после reset или прерванного спина.
     timersRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
     timersRef.current.clear();
   }
@@ -1951,6 +2099,7 @@ export default function App() {
   }
 
   function launchFreeSpins(count, message, meta = null) {
+    // Входим в устойчивый режим бонуски только после подтверждающей стартовой модалки.
     setIsFreeSpins(true);
     setFreeSpinsLeft(count);
     setFreeSpinsTotalWin(0);
@@ -1965,6 +2114,7 @@ export default function App() {
   }
 
   function queueFreeSpinsStart(count, meta = null) {
+    // Старт бонуса специально завязан на модалку, чтобы у триггера была отдельная драматическая пауза.
     setPendingFreeSpinsStart(count);
     setPendingFreeSpinsMeta(meta);
     setBonusModal({
@@ -2009,6 +2159,38 @@ export default function App() {
   }
 
   async function runSpin(options = {}) {
+    /*
+     * Главный сценарий игры.
+     *
+     * Фаза A: подготовка
+     * - проверка баланса и режима,
+     * - очистка прошлых подсветок и оверлеев,
+     * - перевод интерфейса в состояние вращения,
+     * - списание ставки, если это обычный платный спин.
+     *
+     * Фаза B: раскрытие поля
+     * - выдерживается пауза под CSS-анимацию "вращения барабана",
+     * - генерируется поле,
+     * - поле показывается и проходит короткую фазу "приземления".
+     *
+     * Фаза C: цикл расчёта
+     * - в free spins sticky-scatter сначала могут собрать Conserva,
+     * - затем проверяются обычные выигрыши и scatter-триггеры,
+     * - выигрыш удерживается на экране,
+     * - символы удаляются,
+     * - поле падает и дозаполняется,
+     * - цикл повторяется, пока остаются новые выигрыши.
+     *
+     * Фаза D: завершение
+     * - начисляется итоговая выплата,
+     * - обновляются счётчики free spins и времена жизни sticky-scatter,
+     * - при необходимости показываются intro/summary модалки бонуса,
+     * - управление возвращается в idle или в следующую итерацию autospin.
+     *
+     * Контракт по таймингам:
+     * `wait(...)` здесь не случайны — они синхронизированы с длительностями из `main.css`.
+     * Если менять время хотя бы на одной стороне, визуальная сцена начнёт расслаиваться.
+     */
     if (isSpinning) return;
 
     const boughtBonus = options.boughtBonus === true;
@@ -2078,10 +2260,12 @@ export default function App() {
 
     setGrid(currentGrid);
     setColumnMotion("settling");
+    // Небольшая пауза после показа поля, чтобы оно "село" после вращения, а не появилось резко.
     await wait(turbo ? 280 : 420);
     if (spinCycleRef.current !== cycleId) return;
 
     while (true) {
+      // Специальный бонусный предварительный проход: sticky-scatter собирают Conserva до расчёта обычных выигрышей.
       if (spinUsesFreeSpins) {
         const preparedFreeSpin = prepareFreeSpinGrid(currentGrid, activeStickyScatters);
         currentGrid = preparedFreeSpin.grid;
@@ -2133,6 +2317,7 @@ export default function App() {
               spinUsesFreeSpins ? freeSpinsTotalWin + totalSequenceWin : totalSequenceWin,
             ),
           );
+          // Самая длинная пауза в скрипте: полёт символов, пульс цели и всплывающий текст награды.
           await wait(turbo ? 900 : 1600);
           if (spinCycleRef.current !== cycleId) return;
 
@@ -2185,6 +2370,7 @@ export default function App() {
       highestScatterCount = Math.max(highestScatterCount, scatterCount);
 
       if (scatterFeatureTrigger) {
+        // Триггер scatter прерывает обычный каскадный цикл и переводит игру в бонусную ветку.
         totalSequenceWin = Math.min(maxSequenceWin, totalSequenceWin + totalWin);
         setWinningCells(matched);
         setRemovingCells(new Set());
@@ -2201,6 +2387,7 @@ export default function App() {
         if (!spinUsesFreeSpins) {
           await playScatterQuote();
           if (spinCycleRef.current !== cycleId) return;
+          // Натуральный триггер scatter получает дополнительную паузу, чтобы ощущаться крупным событием.
           await wait(1500);
         } else {
           await wait(turbo ? 1400 : 2200);
@@ -2243,6 +2430,7 @@ export default function App() {
       }
 
       if (!matched.size || totalWin <= 0) {
+        // Финальное состояние поля: новых обычных выигрышей нет, можно корректно завершать цикл.
         setWinningCells(new Set());
         setRemovingCells(new Set());
         setCollectingCells(new Set());
@@ -2354,6 +2542,7 @@ export default function App() {
         getWinStatusText(spinUsesFreeSpins ? freeSpinsTotalWin + totalSequenceWin : totalSequenceWin),
       );
 
+      // Удерживаем подсвеченный выигрыш достаточно долго, чтобы игрок успел его визуально считать.
       await wait(turbo ? 900 : 1600);
       if (spinCycleRef.current !== cycleId) return;
 
@@ -2410,6 +2599,7 @@ export default function App() {
       setRemovingCells(new Set());
       setColumnMotion("settling");
 
+      // Окно падения каскада: синхронизировано с CSS-анимациями falling-cell и фазой посадки.
       await wait(turbo ? 260 : 420);
       if (spinCycleRef.current !== cycleId) return;
 

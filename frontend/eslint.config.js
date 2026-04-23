@@ -4,6 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
+// Shared lint rules for the React frontend. Generated assets stay ignored.
 export default defineConfig([
   globalIgnores(['dist']),
   {
