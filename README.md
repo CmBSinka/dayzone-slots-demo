@@ -1,125 +1,128 @@
 # Dayzone Slots Demo
 
-STALKER-inspired browser slot demo built with React, Vite, PixiJS, and a minimal PHP backend stub.
+`Dayzone Slots Demo` — это браузерное демо слот-игры в стилистике STALKER, собранное на `React`, `Vite`, `PixiJS` и дополненное минимальным PHP API-стабом.
 
-The project is designed as a visual prototype rather than a production gambling platform. It focuses on animation, symbol logic, bonus flows, audio feedback, and a themed interface inside a device-like frame.
+Проект задуман как визуальный и геймплейный прототип, а не как production-ready gambling platform. Основной акцент сделан на интерфейсе, анимациях, логике выпадения символов, бонусных механиках, звуках и общей атмосфере.
 
-## Overview
+## Что это за проект
 
-The application simulates a 5x5 slot experience with:
+Приложение моделирует слот с полем `5x5` и включает:
 
-- pay-anywhere win logic
-- cascading reels
-- scatter-triggered bonus mechanics
-- free spins and retriggers
-- buy-bonus flow
-- ante-bet mode with increased bonus chance
-- RTP and volatility guardrails in the spin generation logic
-- themed sound effects and background music
-- PixiJS-based rendering for selected visual effects
+- механику `pay anywhere`
+- каскады после выигрыша
+- scatter-символы
+- бесплатные спины и retrigger
+- покупку бонуса
+- ante bet
+- турбо-режим
+- автоигру
+- звуковые эффекты и фоновую музыку
+- визуальные эффекты на базе `PixiJS`
 
-The backend currently contains a simple PHP API endpoint used as a connectivity stub and can be extended later if game state, persistence, analytics, or remote balancing are needed.
+Бэкенд в текущем состоянии минимальный и нужен скорее как заготовка под API, health-check или будущее расширение логики.
 
-## Tech Stack
+## Технологии
 
-- React 19
-- Vite 8
-- PixiJS
+- `React 19`
+- `Vite 8`
+- `PixiJS`
 - `@pixi/react`
 - `pixi-filters`
-- GSAP
-- PHP for the backend API stub
+- `GSAP`
+- `PHP`
 
-## Project Structure
+## Структура проекта
 
 ```text
 backend/
   api/
-    state.php          # simple JSON API stub
+    state.php          # простой JSON-эндпоинт
 docs/
-  codex-handoff.md    # project handoff notes
-  scatter.md          # bonus/scatter-related design notes
-  vfx_spec.md         # VFX direction and implementation notes
+  codex-handoff.md     # заметки по проекту и handoff-контекст
+  scatter.md           # заметки по бонусной логике
+  vfx_spec.md          # заметки по визуальным эффектам
 frontend/
-  public/             # images, sound effects, music, frame assets
+  public/              # изображения, музыка, звуки, UI-ассеты
   src/
-    App.jsx           # main game logic
-    styles/main.css   # main styling
-    index.css         # global page-level styling
+    App.jsx            # основная игровая логика
+    styles/main.css    # главные стили интерфейса
+    index.css          # глобальные стили страницы
   package.json
-README.md             # this file
+README.md              # этот файл
 ```
 
-## Core Gameplay
+## Что уже реализовано
 
-Current implementation includes:
+На текущий момент в проекте есть:
 
-- 5x5 board generation
-- 10 symbol types including a scatter symbol
-- weighted symbol distribution for base game and free spins
-- symbol payouts based on total matching symbols on the board
-- scatter payouts handled separately
-- free spins with retrigger support
-- bonus purchase mode
-- ante bet mode
-- autospin support
-- turbo mode
-- session reset
-- audio controls and fullscreen mode
+- игровое поле `5x5`
+- набор символов с весами выпадения
+- отдельные веса для базовой игры и free spins
+- расчёт выплат по количеству одинаковых символов на всём поле
+- отдельная логика для scatter
+- каскадное удаление выигрышных символов
+- free spins с возможностью retrigger
+- покупка бонусной игры
+- ante bet
+- автоспины
+- турбо-режим
+- управление музыкой
+- полноэкранный режим
+- базовые RTP- и volatility-ограничения в логике генерации спинов
 
-Some balancing values are intentionally hardcoded in [frontend/src/App.jsx](/c:/OSPanel/domains/research-slot/frontend/src/App.jsx) because this project behaves like a controlled gameplay prototype.
+Большая часть игровой математики и состояния сосредоточена в [frontend/src/App.jsx](/c:/OSPanel/domains/research-slot/frontend/src/App.jsx).
 
-## Requirements
+## Требования
 
-To run the project locally you will typically need:
+Для локального запуска обычно достаточно:
 
-- Node.js 20+ recommended
-- npm
-- PHP 8+ recommended if you want to use the backend endpoint
+- `Node.js 20+`
+- `npm`
+- `PHP 8+` — если нужен запуск backend-части
 
-## Local Setup
+## Как развернуть проект локально
 
-### 1. Clone the repository
+### 1. Клонировать репозиторий
 
 ```bash
 git clone https://github.com/CmBSinka/dayzone-slots-demo.git
 cd dayzone-slots-demo
 ```
 
-### 2. Install frontend dependencies
+### 2. Установить зависимости фронтенда
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 3. Start the frontend development server
+### 3. Запустить dev-сервер
 
 ```bash
 npm run dev
 ```
 
-By default Vite will print a local development URL in the terminal, usually something like:
+После запуска Vite выведет локальный адрес в терминал. Обычно это:
 
 ```text
 http://localhost:5173
 ```
 
-### 4. Optional: run the backend API
+### 4. При необходимости запустить backend
 
-From the project root:
+Из корня проекта:
 
 ```bash
 php -S localhost:8000 -t backend
 ```
 
-The stub endpoint will then be available at:
+После этого тестовый API-эндпоинт будет доступен по адресу:
 
 ```text
 http://localhost:8000/api/state.php
 ```
 
-Expected response:
+Ожидаемый ответ:
 
 ```json
 {
@@ -128,107 +131,117 @@ Expected response:
 }
 ```
 
-## Production Build
+## Сборка production-версии
 
-Build the frontend with:
+Сборка фронтенда:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-Preview the production bundle locally:
+Локальный просмотр production-сборки:
 
 ```bash
 npm run preview
 ```
 
-The compiled frontend output is generated in:
+Готовый билд будет лежать в папке:
 
 ```text
 frontend/dist
 ```
 
-## Deployment Notes
+## Публикация и деплой
 
-### Frontend
+### Фронтенд
 
-The frontend is a static Vite application and can be deployed to:
+Фронтенд — это обычное статическое Vite-приложение. Его можно развернуть на:
 
-- GitHub Pages
-- Netlify
-- Vercel
-- any Nginx/Apache static hosting
+- `GitHub Pages`
+- `Netlify`
+- `Vercel`
+- любом `Nginx` / `Apache` сервере для статических файлов
 
-### Backend
+### Бэкенд
 
-The backend is plain PHP and can be hosted separately on:
+Бэкенд написан на чистом PHP и может быть размещён:
 
-- shared hosting with PHP support
-- Apache or Nginx + PHP-FPM
-- local Open Server / OSPanel setups
+- на обычном shared hosting с поддержкой PHP
+- на `Apache + PHP`
+- на `Nginx + PHP-FPM`
+- в локальной среде вроде `OSPanel` / `Open Server`
 
-If you connect the frontend to the backend later, make sure API URLs are configured for the target environment.
+Если позже фронтенд начнёт реально использовать API, стоит отдельно вынести настройку базового URL для разных окружений.
 
-## Important Files
+## Ключевые файлы
 
-- [frontend/src/App.jsx](/c:/OSPanel/domains/research-slot/frontend/src/App.jsx): main gameplay logic, balancing constants, bonus flow, UI state
-- [frontend/src/styles/main.css](/c:/OSPanel/domains/research-slot/frontend/src/styles/main.css): game layout and visual styling
-- [frontend/src/main.jsx](/c:/OSPanel/domains/research-slot/frontend/src/main.jsx): frontend entry point
-- [backend/api/state.php](/c:/OSPanel/domains/research-slot/backend/api/state.php): backend JSON test endpoint
-- [docs/codex-handoff.md](/c:/OSPanel/domains/research-slot/docs/codex-handoff.md): historical context and implementation notes
+- [frontend/src/App.jsx](/c:/OSPanel/domains/research-slot/frontend/src/App.jsx) — главная игровая логика, состояние UI, бонусы, расчёты
+- [frontend/src/styles/main.css](/c:/OSPanel/domains/research-slot/frontend/src/styles/main.css) — основная стилизация интерфейса
+- [frontend/src/main.jsx](/c:/OSPanel/domains/research-slot/frontend/src/main.jsx) — точка входа фронтенда
+- [backend/api/state.php](/c:/OSPanel/domains/research-slot/backend/api/state.php) — тестовый JSON API-эндпоинт
+- [docs/codex-handoff.md](/c:/OSPanel/domains/research-slot/docs/codex-handoff.md) — рабочий контекст и история проекта
 
-## Assets
+## Ассеты
 
-The repository includes:
+В репозитории уже лежат:
 
-- symbol PNGs
-- sound effects for scatter and special events
-- looping background music
-- UI and frame assets
+- PNG-символы
+- звуковые эффекты
+- фоновая музыка
+- графические элементы интерфейса
 
-Large media assets are stored directly in `frontend/public`.
+Основные медиафайлы расположены в `frontend/public`.
 
-## Known Characteristics
+## Что полезно проверить после запуска
 
-- The backend is currently minimal and does not persist user data.
-- Game balance is controlled in code, not through an admin panel or config service.
-- A number of gameplay constants are tuned for demo behavior and may require further balancing.
-- The project contains internal design notes in `docs/` that are useful for future iteration but are not user-facing documentation.
+После локального старта проекта стоит проверить:
 
-## Suggested Verification After Setup
+- корректно ли открывается интерфейс в браузере
+- работает ли музыка и её выключение
+- корректно ли проигрываются анимации спина
+- запускаются ли scatter и free spins
+- правильно ли работает fullscreen
+- не ломаются ли русские подписи в интерфейсе
+- нет ли ошибок загрузки изображений и аудио
 
-After launching the project, it is worth checking:
-
-- the game loads correctly in the browser
-- music can be toggled on and off
-- spins animate correctly
-- scatter and free spins trigger as expected
-- fullscreen mode behaves correctly
-- Russian UI labels display correctly
-- assets load without missing file errors
-
-## Commands Summary
+## Основные команды
 
 ```bash
-# install dependencies
+# установка зависимостей
 cd frontend
 npm install
 
-# start dev server
+# запуск dev-сервера
 npm run dev
 
-# build production bundle
+# production build
 npm run build
 
-# preview production bundle
+# локальный preview сборки
 npm run preview
 
-# optional backend
+# запуск PHP backend
 cd ..
 php -S localhost:8000 -t backend
 ```
 
-## Disclaimer
+## Ограничения текущей версии
 
-This repository is a demo/prototype project intended for interface, animation, and gameplay experimentation. It is not a licensed gambling product and should be treated as a technical showcase or research build.
+- backend пока не хранит состояние пользователя и не работает как полноценный игровой сервер
+- игровая математика и баланс заданы прямо в коде
+- часть значений настроена именно под демо-сценарий
+- документация в `docs/` носит рабочий характер и полезна в первую очередь разработчику
+
+## Для кого этот репозиторий
+
+Проект подойдёт как:
+
+- демонстрация UI/UX слот-интерфейса
+- основа для экспериментов с механиками каскадов и бонусов
+- заготовка для дальнейшего развития браузерной game-demo системы
+- технический прототип для исследований, презентации или портфолио
+
+## Важно
+
+Это демо и исследовательский прототип. Репозиторий не является лицензированным gambling-продуктом и не должен восприниматься как готовая коммерческая платформа.
